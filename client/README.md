@@ -1,3 +1,19 @@
+# Клиент AFP
+
+Ебейший клиент ботаника: каталог с поиском и три роли.
+
+- **Запуск:** `npm install`, затем `npm start` → http://localhost:3000
+- **Роли (заглушка авторизации, проверки должны быть на сервере):**
+  - **Посетитель / Студент** — без входа, только чтение каталога и поиск по названию/семейству;
+  - **Куратор (Агроном)** — вход `curator` / `kokain`: добавление, изменение и списание растений своего сектора;
+  - **Администратор БД** — вход `dbadmin` / `lotov`: бэкапы, структура таблиц, выдача токенов API (заглушки).
+- **Данные:** `src/data/mockPlants.js`; добавленные растения — `localStorage` (ключ `plants-v2`; при изменении моков поднимайте версию ключа)
+- **Подключение сервера:** `src/services/plantsApi.js` → `USE_SERVER = true`, `SERVER_URL`; нужны `GET /plants`, `POST /plants`, `PUT /plants/{id}`, `POST /plants/{id}/retire`, `POST /admin/backup`, `GET /admin/tables`, `POST /admin/tokens`
+
+Точка входа — `src/index.js`, он рендерит `src/SimpleApp.js`. Скелетный `src/App.js` не используется.
+
+---
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
