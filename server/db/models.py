@@ -2,6 +2,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     Date,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -144,6 +145,8 @@ class Exhibit(Base):
     care_status = Column(String(64), nullable=False, default="stable")
     planted_at = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
+    x = Column(Float, nullable=True)
+    y = Column(Float, nullable=True)
 
     plant = relationship("Plant", back_populates="exhibits")
     location = relationship("Location", back_populates="exhibits")

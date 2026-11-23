@@ -5,26 +5,11 @@ import {
     issueApiToken,
     listTables,
     loadPlants,
+    loginStaff,
+    logoutStaff,
     retirePlant,
     updatePlant,
 } from './services/plantsApi';
-
-// Заглушка авторизации: настоящие проверки пароля и токены выдаёт сервер.
-// curator — куратор сектора (пароль kokain), dbadmin — администратор БД (пароль lotov).
-const USERS = {
-    curator: {
-        password: 'kokain',
-        role: 'curator',
-        title: 'Куратор (Агроном)',
-        sector: 'Завьяловский огород',
-    },
-    dbadmin: {
-        password: 'lotov',
-        role: 'dbadmin',
-        title: 'Администратор БД',
-        sector: '',
-    },
-};
 
 const GUEST = { role: 'guest', title: 'Посетитель / Студент', sector: '' };
 
@@ -32,36 +17,43 @@ function SimpleApp() {
     const [tab, setTab] = useState('catalog');
     const [plants, setPlants] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
+    const [retireError, setRetireError] = useState('');
     const [user, setUser] = useState(GUEST);
     const [editing, setEditing] = useState(null);
     const [search, setSearch] = useState('');
 
-    useEffect(() => {
+    const refreshCatalog = () => {
+        setLoading(true);
+        setLoadError('');
         loadPlants()
             .then((data) => setPlants(data))
+            .catch((error) => setLoadError(error.message))
             .finally(() => setLoading(false));
-    }, []);
+    };
+
+    useEffect(refreshCatalog, []);
 
     const isCurator = user.role === 'curator';
     const isDbAdmin = user.role === 'dbadmin';
 
-    const handleLogin = (login, password) => {
-        const found = USERS[login.trim().toLowerCase()];
-
-        if (!found || found.password !== password) {
-            return false;
-        }
-
-        setUser(found);
+    const handleLogin = async (login, password) => {
+        const profile = await loginStaff(login, password);
+        setUser(profile);
         setEditing(null);
-        setTab(found.role === 'dbadmin' ? 'dbadmin' : 'catalog');
-        return true;
+        setTab(profile.role === 'dbadmin' ? 'dbadmin' : 'catalog');
     };
 
-    const handleLogout = () => {
-        setUser(GUEST);
-        setEditing(null);
-        setTab('catalog');
+    const handleLogout = async () => {
+        try {
+            await logoutStaff();
+        } catch (error) {
+            setRetireError(error.message);
+        } finally {
+            setUser(GUEST);
+            setEditing(null);
+            setTab('catalog');
+        }
     };
 
     const handleCreate = async (plant) => {
@@ -77,12 +69,17 @@ function SimpleApp() {
     };
 
     const handleRetire = async (id) => {
-        const retired = await retirePlant(id);
-        setPlants((prev) => prev.map((item) => (item.id === id ? retired : item)));
+        setRetireError('');
+        try {
+            const retired = await retirePlant(id);
+            setPlants((prev) => prev.map((item) => (item.id === id ? retired : item)));
+        } catch (error) {
+            setRetireError(error.message);
+        }
     };
 
     // Куратор управляет только растениями своего сектора.
-    const canManage = (plant) => isCurator && plant.location === user.sector;
+    const canManage = (plant) => isCurator && user.sectors.includes(plant.location);
 
     const openEditor = (plant) => {
         setEditing(plant);
@@ -100,13 +97,13 @@ function SimpleApp() {
 
             <p>
                 Роль: <b>{user.title}</b>
-                {user.sector ? ` (сектор: ${user.sector})` : ''}
+                {user.sector ? ` (секторы: ${user.sectors.join(', ')})` : ''}
             </p>
 
             <button type="button" onClick={() => setTab('catalog')}>
                 Каталог ({plants.length})
             </button>{' '}
-            {isCurator && (
+            {isCurator && user.sectors.length > 0 && (
                 <button type="button" onClick={() => openEditor(null)}>
                     Добавить растение
                 </button>
@@ -130,7 +127,15 @@ function SimpleApp() {
 
             {loading && <p>Загрузка…</p>}
 
-            {!loading && tab === 'catalog' && (
+            {tab === 'catalog' && loadError && (
+                <div>
+                    <p role="alert">Не удалось загрузить каталог: {loadError}</p>
+                    <button type="button" onClick={refreshCatalog}>Повторить</button>
+                </div>
+            )}
+            {tab === 'catalog' && retireError && <p role="alert">{retireError}</p>}
+
+            {!loading && !loadError && tab === 'catalog' && (
                 <Catalog
                     plants={plants}
                     search={search}
@@ -164,15 +169,19 @@ function LoginForm({ onLogin }) {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
-    const handleSubmit = (event) => {
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async (event) => {
         event.preventDefault();
-
-        if (onLogin(login, password)) {
-            setError('');
-            return;
+        setError('');
+        setSubmitting(true);
+        try {
+            await onLogin(login, password);
+        } catch (error) {
+            setError(error.message);
+        } finally {
+            setSubmitting(false);
         }
-
-        setError('Неверный логин или пароль');
     };
 
     return (
@@ -201,12 +210,11 @@ function LoginForm({ onLogin }) {
             </p>
 
             <p>
-                <button type="submit">Войти</button>
+                <button type="submit" disabled={submitting}>Войти</button>
             </p>
 
             {error && <p>{error}</p>}
 
-            <p>Заглушка: curator / kokain, dbadmin / lotov.</p>
         </form>
     );
 }
@@ -250,10 +258,21 @@ function Catalog({ plants, search, onSearch, canManage, onEdit, onRetire }) {
                             {plant.temperature || '—'}. Влажность: {plant.humidity || '—'}
                         </p>
                         <p>Категории: {(plant.categories || []).join(', ') || '—'}</p>
-                        <p>
-                            Инв. №: {plant.inventory_number || '—'}. Локация: {plant.location || '—'}.
-                            Статус: {plant.care_status || '—'}
-                        </p>
+                        {(plant.exhibits || []).map((exhibit) => (
+                            <div key={exhibit.inventory_number}>
+                                <p>
+                                    Инв. №: {exhibit.inventory_number}. Локация: {exhibit.location}.
+                                    Статус: {exhibit.care_status}
+                                </p>
+                                <p>
+                                    Позиция: {exhibit.x == null || exhibit.y == null
+                                        ? 'не задана'
+                                        : `X = ${exhibit.x}, Y = ${exhibit.y}`}
+                                </p>
+                                <p>Дата посадки: {exhibit.planted_at || '—'}</p>
+                                <p>Примечание: {exhibit.notes || '—'}</p>
+                            </div>
+                        ))}
                         <p>{plant.description}</p>
 
                         {plant.care_status === 'written_off' && (
@@ -293,6 +312,8 @@ const EMPTY_FORM = {
     categories: '',
     inventory_number: '',
     location: '',
+    x: '',
+    y: '',
     care_status: 'stable',
     planted_at: '',
     notes: '',
@@ -328,6 +349,7 @@ function AdminPanel({ user, editing, onCreate, onUpdate, onCancel }) {
         editing ? toForm(editing) : { ...EMPTY_FORM, location: user.sector }
     );
     const [message, setMessage] = useState('');
+    const [saving, setSaving] = useState(false);
 
     const handleChange = (event) => {
         const { name, value } = event.target;
@@ -345,12 +367,16 @@ function AdminPanel({ user, editing, onCreate, onUpdate, onCancel }) {
 
         const plant = {
             ...form,
+            x: Number(form.x),
+            y: Number(form.y),
             categories: form.categories
                 .split(',')
                 .map((name) => name.trim())
                 .filter(Boolean),
         };
 
+        setSaving(true);
+        setMessage('');
         try {
             if (editing) {
                 const saved = await onUpdate(editing.id, plant);
@@ -363,6 +389,8 @@ function AdminPanel({ user, editing, onCreate, onUpdate, onCancel }) {
             setMessage(`Добавлено: ${created.russian_name}`);
         } catch (e) {
             setMessage(`Ошибка: ${e.message}`);
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -404,7 +432,32 @@ function AdminPanel({ user, editing, onCreate, onUpdate, onCancel }) {
             {textField('humidity', 'Влажность')}
             {textField('categories', 'Категории (через запятую)')}
             {textField('inventory_number', 'Инвентарный номер')}
-            {textField('location', 'Локация')}
+            <p>
+                <label>
+                    Локация
+                    <br />
+                    <select name="location" value={form.location} onChange={handleChange}>
+                        {user.sectors.map((sector) => (
+                            <option key={sector}>{sector}</option>
+                        ))}
+                    </select>
+                </label>
+            </p>
+
+            <p>
+                <label>
+                    Координата X *
+                    <br />
+                    <input type="number" step="any" name="x" value={form.x} onChange={handleChange} required />
+                </label>
+            </p>
+            <p>
+                <label>
+                    Координата Y *
+                    <br />
+                    <input type="number" step="any" name="y" value={form.y} onChange={handleChange} required />
+                </label>
+            </p>
 
             <p>
                 <label>
@@ -423,7 +476,7 @@ function AdminPanel({ user, editing, onCreate, onUpdate, onCancel }) {
             {textareaField('notes', 'Примечание')}
 
             <p>
-                <button type="submit">{editing ? 'Сохранить' : 'Добавить'}</button>{' '}
+                <button type="submit" disabled={saving}>{editing ? 'Сохранить' : 'Добавить'}</button>{' '}
                 <button type="button" onClick={onCancel}>
                     Отмена
                 </button>
@@ -434,41 +487,49 @@ function AdminPanel({ user, editing, onCreate, onUpdate, onCancel }) {
     );
 }
 
-// Администратор БД: бэкапы, структура таблиц, токены API.
-// Клиент только показывает результат — всё делает сервер Python (root-доступ).
 function DbAdminPanel() {
     const [message, setMessage] = useState('');
     const [tables, setTables] = useState([]);
+    const [busy, setBusy] = useState(false);
 
-    const handleBackup = async () => {
+    const run = async (action) => {
+        setMessage('');
+        setBusy(true);
+        try {
+            await action();
+        } catch (error) {
+            setMessage(error.message);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const handleBackup = () => run(async () => {
         const result = await createBackup();
         setMessage(`Бэкап создан: ${result.file}`);
-    };
+    });
 
-    const handleTables = async () => {
+    const handleTables = () => run(async () => {
         setTables(await listTables());
-    };
+    });
 
-    const handleToken = async () => {
+    const handleToken = () => run(async () => {
         const result = await issueApiToken();
         setMessage(`Токен API выдан: ${result.token}`);
-    };
+    });
 
     return (
         <div>
             <h2>Администратор БД</h2>
-            <p>
-                Заглушки: бэкапы, структуру таблиц и токены API выдаёт сервер Python (root-доступ).
-            </p>
 
             <p>
-                <button type="button" onClick={handleBackup}>
+                <button type="button" onClick={handleBackup} disabled={busy}>
                     Сделать бэкап
                 </button>{' '}
-                <button type="button" onClick={handleTables}>
+                <button type="button" onClick={handleTables} disabled={busy}>
                     Структура таблиц
                 </button>{' '}
-                <button type="button" onClick={handleToken}>
+                <button type="button" onClick={handleToken} disabled={busy}>
                     Выдать токен API
                 </button>
             </p>

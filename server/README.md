@@ -32,3 +32,27 @@ py main.py
 ```
 py -m db.seed
 ```
+
+## Локальная проверка фронтенда и API
+
+Из папки `server` установите зависимости и запустите API:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install fastapi uvicorn sqlalchemy
+python -m db.seed
+python -m uvicorn main:app --port 8000
+```
+
+Из папки `client` в отдельном терминале:
+
+```sh
+npm ci
+npm start
+```
+
+В тестовой базе `i.goliubo` — куратор, `admin` — администратор БД.
+Начальный пароль обоих аккаунтов — `change-me`. Используйте эти аккаунты только
+с локальными демонстрационными данными. Секторы куратора определяются по локациям
+его экземпляров из БД. Бэкапы SQLite сохраняются в папке `backups` рядом с `db.db`.

@@ -27,6 +27,8 @@ class PlantInput:
     curator_id: Optional[int] = None
     planted_at: Optional[date] = None
     notes: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
 
 
 def _get_or_create_category(db: Session, name: str) -> Category:
@@ -66,51 +68,10 @@ def insert_plant(db: Session, data: PlantInput, *, commit: bool = True) -> Plant
     existing = db.query(Plant).filter(Plant.latin_name == data.latin_name).one_or_none()
     
     if existing is not None:
-        raise ValueError(f"Растение с не русским названием {data.latin_name} уже есть")
+        raise ValueError(f"Растение с латинским названием {data.latin_name} уже есть")
 
-    plant = Plant(
-        russian_name=data.russian_name,
-        latin_name=data.latin_name,
-        family=data.family,
-        life_form=data.life_form,
-        description=data.description,
-        geographic_origin=data.geographic_origin,
-    )
-
-    plant.characteristics = PlantCharacteristic(
-        watering=data.watering,
-        light=data.light,
-        temperature=data.temperature,
-        humidity=data.humidity,
-    )
-
-    plant.categories = [
-        _get_or_create_category(db, name) for name in data.category_names
-    ]
-
-    if data.inventory_number:
-        existing_exhibit = (
-            db.query(Exhibit)
-            .filter(Exhibit.inventory_number == data.inventory_number)
-            .one_or_none()
-        )
-
-        if existing_exhibit is not None:
-            raise ValueError(
-                f"Инвентарный номер {data.inventory_number} уже занят"
-            )
-            
-        location = _resolve_location(db, data)
-        plant.exhibits.append(
-            Exhibit(
-                inventory_number=data.inventory_number,
-                location=location,
-                curator_id=data.curator_id,
-                care_status=data.care_status,
-                planted_at=data.planted_at,
-                notes=data.notes,
-            )
-        )
+    plant = Plant()
+    apply_plant_input(db, plant, data)
 
     db.add(plant)
     if commit:
@@ -119,6 +80,48 @@ def insert_plant(db: Session, data: PlantInput, *, commit: bool = True) -> Plant
     else:
         db.flush()
     return plant
+
+
+def apply_plant_input(
+    db: Session, plant: Plant, data: PlantInput, exhibit: Optional[Exhibit] = None
+) -> None:
+    plant.russian_name = data.russian_name
+    plant.latin_name = data.latin_name
+    plant.family = data.family
+    plant.life_form = data.life_form
+    plant.description = data.description
+    plant.geographic_origin = data.geographic_origin
+
+    if plant.characteristics is None:
+        plant.characteristics = PlantCharacteristic()
+    plant.characteristics.watering = data.watering
+    plant.characteristics.light = data.light
+    plant.characteristics.temperature = data.temperature
+    plant.characteristics.humidity = data.humidity
+
+    plant.categories = [
+        _get_or_create_category(db, name) for name in dict.fromkeys(data.category_names)
+    ]
+
+    if not data.inventory_number:
+        return
+
+    existing = db.query(Exhibit).filter_by(inventory_number=data.inventory_number).one_or_none()
+    if existing is not None and existing is not exhibit:
+        raise ValueError(f"Инвентарный номер {data.inventory_number} уже занят")
+
+    location = _resolve_location(db, data)
+    if exhibit is None:
+        exhibit = Exhibit(curator_id=data.curator_id)
+        plant.exhibits.append(exhibit)
+
+    exhibit.inventory_number = data.inventory_number
+    exhibit.location = location
+    exhibit.care_status = data.care_status
+    exhibit.planted_at = data.planted_at
+    exhibit.notes = data.notes
+    exhibit.x = data.x
+    exhibit.y = data.y
 
 
 def insert_plants(

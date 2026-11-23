@@ -1,13 +1,9 @@
 from datetime import date
-from hashlib import sha256
 
 from db.crud import PlantInput, insert_plants
 from db.db import SessionLocal, init_db
 from db.models import Category, GardenStaff, Location, Role
-
-
-def _password_hash(raw: str) -> str:
-    return sha256(raw.encode("utf-8")).hexdigest()
+from security import hash_password
 
 
 def _get_or_create_role(db, name: str, description: str) -> Role:
@@ -65,7 +61,7 @@ def seed():
             "i.goliubo",
             full_name="Хачатурян Глеб Олегович",
             email="goliubo@udsu-garden.local",
-            password_hash=_password_hash("change-me"),
+            password_hash=hash_password("change-me"),
             role_id=agronomist.id,
         )
         _get_or_create_staff(
@@ -73,7 +69,7 @@ def seed():
             "admin",
             full_name="Админ сада",
             email="ya_admin@udsu-garden.local",
-            password_hash=_password_hash("change-me"),
+            password_hash=hash_password("change-me"),
             role_id=superadmin.id,
         )
 

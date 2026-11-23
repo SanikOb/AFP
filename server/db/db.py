@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./db.db"
@@ -28,6 +28,14 @@ def get_db():
 
 
 def init_db():
-    from db import models  
+    from db import models
 
-    Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        Base.metadata.create_all(bind=connection)
+
+        # create_all does not add columns to an existing SQLite table.
+        columns = {column["name"] for column in inspect(connection).get_columns("exhibits")}
+        for axis in ("x", "y"):
+            if axis not in columns:
+                connection.exec_driver_sql(f"ALTER TABLE exhibits ADD COLUMN {axis} FLOAT")
